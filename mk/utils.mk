@@ -46,24 +46,30 @@ define time_it_NOTPARALLEL
 	$(eval $@_I:=${$@_I}_)
 endef
 
+# Searches .hashignore file uptree from folder ($1) given until /
+# Strips-out full-path, keeps hash output relative to folder ($1)
 define generate_folder_hash
-	$(call time_it, Hash (MD5SUM) ($(strip $1)) , \
-		find $(strip $1) -type f \
-			\( $$(awk 'BEGIN{ORS=" -and "} y{print s}{s="-not -name "$$0; y=1}END{ORS=""; print s}' ${ROOT}/.hashignore) \) \
-			-print0 | sort -z | xargs -0 -L1 -I{} md5sum {} > $(strip $1)/$(strip $2))
+    $(call time_it, Hash (MD5SUM) ($(strip $1)) , \
+        find $(strip $1) -type f \( -not -name .hashignore -and -not -name $(strip $2) \
+            $$(function _upsearch () {     test / == "$PWD" && return || test -e "$1" && return || cd .. && _upsearch "$1"; }; cd $(strip $1) ; _upsearch .hashignore ; xargs -a .hashignore -I% printf "-and -not -name '%' ") \
+            \) -print0 | sort -z | xargs -0 -L1 -I{} md5sum {} > $(strip $1)/$(strip $2) && sed -i 's+$(strip $1)/++g' $(strip $1)/$(strip $2))
 endef
 
+# Creates temporary md5sum file from path ($1) and compares against given one ($2)
+# On failure prints requested error-string ($3), then DIFF, then exits with FALSE
 define validate_generated_path
 	$(call generate_folder_hash, $(1), md5sum_validate.txt)
-	@if [ ! -e $(strip $1)/md5sum.txt ]; then \
-		echo "\033[31m\033[1m$(1)/md5sum.txt Doesn't exist! create initial version\33[0m"; \
+	@if [ ! -e $(strip $2) ]; then \
+		echo "\033[31m\033[1m$(2) Doesn't exist! create initial version\33[0m"; \
 		false; \
 	fi
-	@if [ "$$(diff $(strip $1)/md5sum.txt $(strip $1)/md5sum_validate.txt | wc -l)" != "0" ]; then \
-		echo "\033[31m\033[1m$(strip $2)\33[0m"; \
+	@if [ "$$(diff $(strip $2) $(strip $1)/md5sum_validate.txt | wc -l)" != "0" ]; then \
+		echo "\033[31m\033[1m$(strip $3)\33[0m"; \
 		diff $(strip $1)/md5sum.txt $(strip $1)/md5sum_validate.txt; \
 		echo "diff returned $$?"; \
+		rm -f $(strip $1)/md5sum_validate.txt; \
 		false; \
 	fi
+	@rm -f $(strip $1)/md5sum_validate.txt
 endef
 
